@@ -24,10 +24,12 @@ public class Nem12Parser {
     public static void main(String[] args) throws Exception {
         Instant start = Instant.now();
         List<Future<?>> futures = new ArrayList<>();
+        // Set of codes that indicate the start of a new record, used to determine if a line belongs to the current 300 record or the next one.
         Set<String> endCodes = Set.of("100","200","300","400","500","900");
         int interval = 0;
         String currentNmi = null;
 
+        // Adjust the file path as needed. It will be a argument if this is a production code, but for simplicity, I hardcoded it here.
         File file = new File("C:\\D\\flo_energy\\input.csv");
         if (!file.exists()) {
             System.err.println("Input file not found: " + file.getAbsolutePath());
@@ -35,6 +37,7 @@ public class Nem12Parser {
         }
         // Create thread pool. set a reasonable queue size to avoid OOM, and use CallerRunsPolicy to handle rejected tasks when the queue is full.
         BlockingQueue<Runnable> workQueue = new ArrayBlockingQueue<>(QUEUE_SIZE);
+        // Custom thread factory
         ThreadFactory threadFactory = new ThreadFactory() {
             private int count = 1;
             @Override
@@ -78,7 +81,7 @@ public class Nem12Parser {
                     //So need to match until next code such as 100,200,300,400,500,900.
                     StringBuilder record = new StringBuilder(line);
                     while (true) {
-                        //if did not find it, read the next line and append to current line
+                        //read the next line to check if it's part of the current 300 record or the start of the next record.
                         String nextLine = reader.readLine();
                         if (nextLine == null) break;
                         //get the first field of the next line.
@@ -93,6 +96,7 @@ public class Nem12Parser {
 
                         record.append(nextLine.trim());
                     }
+                    // process the complete 300 record, submit to thread pool for parallel processing
                     String finalCurrentNmi = currentNmi;
                     int finalInterval = interval;
                     String recordString = record.toString();
@@ -135,14 +139,18 @@ public class Nem12Parser {
     private static void process300Record(String currentNmi, int interval, String recordLine) {
         try {
             String[] fields = recordLine.split(",");
+            //Get date field
             LocalDate date = LocalDate.parse(fields[1], DATE_FORMAT);
 
             //1440 is the total minutes in a day.
             int intervalCount = 1440 / interval;
+            //Use StringBuilder not String to assemble the SQL statement for batch insert to improve efficiency.
             StringBuilder values = new StringBuilder();
+            //Insert statement prefix, the actual values will be appended in the loop below.
             values.append("INSERT INTO meter_readings (nmi, timestamp, consumption) VALUES ");
             boolean first = true;
 
+            //assemble the sql statement.
             for (int i = 0; i < intervalCount; i++) {
                 //process the consumption from the third filed.
                 int index = i + 2;
@@ -150,6 +158,7 @@ public class Nem12Parser {
                 if (fields[index] == null || fields[index].isEmpty()) continue;
                 try {
                     double consumption = Double.parseDouble(fields[index]);
+                    //get the timestamp for each interval by adding minutes to the start of the day.
                     LocalDateTime timestamp = date.atStartOfDay().plusMinutes(i * interval);
                     if (!first) values.append(",");
                     values.append("('")
@@ -163,6 +172,7 @@ public class Nem12Parser {
 
                 } catch (NumberFormatException e) {
                     System.err.println("Invalid consumption value: " + fields[index]);
+                    e.printStackTrace();
                 }
             }
             values.append(";");
