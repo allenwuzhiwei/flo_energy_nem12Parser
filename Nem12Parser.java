@@ -47,6 +47,7 @@ public class Nem12Parser {
                 return t;
             }
         };
+        // Rejection handler that runs the task in the caller thread when the queue is full, to prevent task loss and provide backpressure.
         RejectedExecutionHandler handler = new ThreadPoolExecutor.CallerRunsPolicy();
         // If the queue is full, run task in caller thread instead of dropping
         ThreadPoolExecutor executor = new ThreadPoolExecutor(
@@ -169,14 +170,13 @@ public class Nem12Parser {
                             .append(consumption)
                             .append(")");
                     first = false;
-
                 } catch (NumberFormatException e) {
                     System.err.println("Invalid consumption value: " + fields[index]);
                     e.printStackTrace();
                 }
             }
             values.append(";");
-            System.out.println(values.toString());
+            System.out.println(values);
         } catch (Exception e) {
             System.err.println("Error processing 300 record for NMI: " + currentNmi);
             e.printStackTrace();
